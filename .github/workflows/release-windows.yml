@@ -1,0 +1,49 @@
+name: Windows release artifact
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        shell: pwsh
+        run: .\scripts\test-windows.ps1
+
+      - name: Build Windows artifact
+        shell: pwsh
+        run: .\scripts\build-windows.ps1
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/zucchini.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: zucchini-windows-amd64
+          if-no-files-found: error
+          path: |
+            dist/zucchini.exe
+            dist/zucchini.exe.sha256

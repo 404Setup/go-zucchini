@@ -1,0 +1,10 @@
+# Auto-detect text files and normalize line endings to LF in the repo.
+* text=auto eol=lf
+
+# Zucchini patch files are binary.
+*.patch binary
+
+# Binary assets are never diffed as text.
+*.png binary
+*.jpg binary
+*.ico binary

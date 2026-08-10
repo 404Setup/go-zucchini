@@ -1,0 +1,25 @@
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+compile_commands.json
+.cache/
+
+# Go build and profiling artifacts
+/zucchini
+*.exe
+*.pprof
+*.patch
+/.gocache/
+/.gomodcache/
+/.gotmp/
+/dist/
+
+# ASM_PLAN.md Phase 0 benchmark corpus and measurement records
+/.asmbench/
+.mcp.json
+.claude
+.codex
