@@ -3,7 +3,6 @@ package sais
 import (
 	"math/bits"
 	"math/rand"
-	"os"
 	"slices"
 	"sort"
 	"testing"
@@ -241,15 +240,15 @@ func TestSAISRepeated(t *testing.T) {
 	}
 }
 
-// TestSAISRealData validates against a prefix of a real binary, exercising the
-// byte-alphabet path on non-synthetic data.
-func TestSAISRealData(t *testing.T) {
-	data, err := os.ReadFile("../../v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	if len(data) > 300000 {
-		data = data[:300000]
+// TestSAISStructuredData exercises the byte-alphabet path with repeated pages,
+// long common prefixes, and deterministic local mutations.
+func TestSAISStructuredData(t *testing.T) {
+	data := make([]byte, 16*1024)
+	for i := range data {
+		data[i] = byte((i*31 + i/97) & 0xFF)
+		if i%1024 < 192 {
+			data[i] = byte(i % 17)
+		}
 	}
 	str := make([]uint32, len(data))
 	for i, b := range data {

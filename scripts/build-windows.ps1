@@ -1,5 +1,8 @@
 param(
-    [string]$Output = "dist\zucchini.exe"
+    [string]$Output = "dist\zucchini.exe",
+    [string]$GoAmd64 = 'v1',
+    [string]$GoExperiment = 'none',
+    [switch]$Hardened
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,15 +18,21 @@ foreach ($name in 'CGO_ENABLED', 'GOAMD64', 'GOEXPERIMENT', 'GOFLAGS', 'GOCACHE'
 
 try {
     $env:CGO_ENABLED = '0'
-    $env:GOAMD64 = 'v1'
-    $env:GOEXPERIMENT = 'none'
+    $env:GOAMD64 = $GoAmd64
+    $env:GOEXPERIMENT = $GoExperiment
     $env:GOCACHE = Join-Path $repoRoot '.gocache'
     $env:GOMODCACHE = Join-Path $repoRoot '.gomodcache'
     $env:GOTMPDIR = Join-Path $repoRoot '.gotmp\release'
     New-Item -ItemType Directory -Force -Path $env:GOCACHE, $env:GOMODCACHE, $env:GOTMPDIR | Out-Null
     Remove-Item Env:GOFLAGS -ErrorAction SilentlyContinue
 
-    & go build -buildvcs=true -o $outputPath ./cmd/zucchini
+    $goArgs = @('build', '-buildvcs=true')
+    if ($Hardened) {
+        $goArgs += @('-trimpath', '-buildmode=pie')
+    }
+    $goArgs += @('-o', $outputPath, './cmd/zucchini')
+
+    & go @goArgs
     if ($LASTEXITCODE -ne 0) {
         throw "go build failed with exit code $LASTEXITCODE"
     }

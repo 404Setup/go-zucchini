@@ -110,6 +110,46 @@ func TestBufferSourceRejectsInvalidBoundsAndOverflow(t *testing.T) {
 	}
 }
 
+func TestBufferSourceCursorOperations(t *testing.T) {
+	source := NewBufferSourceFromOffset([]byte{1, 2, 3, 4, 5, 0x81, 0x01}, 99)
+	if source.Cursor() != 7 || source.Remaining() != 0 {
+		t.Fatalf("clamped source = cursor %d, remaining %d", source.Cursor(), source.Remaining())
+	}
+
+	source = NewBufferSource([]byte{1, 2, 3, 4, 5, 0x81, 0x01})
+	if !source.CheckNextBytes([]byte{1, 2}) || source.CheckNextBytes([]byte{2}) {
+		t.Fatal("CheckNextBytes returned an incorrect result")
+	}
+	if !source.ConsumeBytes([]byte{1, 2}) || source.ConsumeBytes([]byte{9}) {
+		t.Fatal("ConsumeBytes returned an incorrect result")
+	}
+	if !bytes.Equal(source.RegionFrom(0), []byte{1, 2}) || source.RegionFrom(-1) != nil || source.RegionFrom(3) != nil {
+		t.Fatal("RegionFrom returned an incorrect region")
+	}
+	if !bytes.Equal(source.Bytes(), []byte{3, 4, 5, 0x81, 0x01}) {
+		t.Fatalf("Bytes() = %v", source.Bytes())
+	}
+	value, ok := source.GetInt32LE()
+	// Read bytes 03 04 05 81 as a signed little-endian integer.
+	if !ok || uint32(value) != 0x81050403 {
+		t.Fatalf("GetInt32LE() = %#x, %v", uint32(value), ok)
+	}
+	if !source.SkipLeb128() || source.Remaining() != 0 {
+		t.Fatal("SkipLeb128 did not consume a valid value")
+	}
+	if source.SkipLeb128() {
+		t.Fatal("SkipLeb128 accepted an empty value")
+	}
+
+	source = NewBufferSource([]byte{1, 2})
+	if source.Skip(3) || source.Cursor() != 2 {
+		t.Fatal("oversized Skip did not fail at the end of the buffer")
+	}
+	if source.CheckNextBytes([]byte{1}) {
+		t.Fatal("CheckNextBytes matched beyond the end")
+	}
+}
+
 func TestWriterSinkMatchesBufferSink(t *testing.T) {
 	bufferData := make([]byte, 128)
 	bufferSink := NewBufferSink(bufferData)

@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,5 +130,97 @@ func TestRunCLIRejectsInvalidSHA256(t *testing.T) {
 	code := runCLI([]string{"apply", "old", "patch", "new", "--sha256", "not-a-digest"}, &stdout, &stderr)
 	if code != zucchini.StatusInvalidParam || !strings.Contains(stderr.String(), "64 hexadecimal") {
 		t.Fatalf("runCLI() = %v, stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunCLIFileCommands(t *testing.T) {
+	dir := t.TempDir()
+	oldData := []byte("the old command-line input with repeated repeated bytes")
+	newData := []byte("the new command-line output with repeated changed bytes")
+	oldPath := filepath.Join(dir, "old.bin")
+	newPath := filepath.Join(dir, "new.bin")
+	patchPath := filepath.Join(dir, "update.patch")
+	outputPath := filepath.Join(dir, "output.bin")
+	if err := os.WriteFile(oldPath, oldData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, newData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) (zucchini.StatusCode, string, string) {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := runCLI(args, &stdout, &stderr)
+		return code, stdout.String(), stderr.String()
+	}
+
+	if code, _, stderr := run("gen", oldPath, newPath, patchPath, "--raw"); code != zucchini.StatusSuccess {
+		t.Fatalf("gen: code=%v stderr=%q", code, stderr)
+	}
+	if code, _, stderr := run("verify", patchPath); code != zucchini.StatusSuccess {
+		t.Fatalf("verify: code=%v stderr=%q", code, stderr)
+	}
+	digest := sha256.Sum256(newData)
+	if code, _, stderr := run("apply", oldPath, patchPath, outputPath, "--sha256", strings.ToUpper(hex.EncodeToString(digest[:]))); code != zucchini.StatusSuccess {
+		t.Fatalf("apply: code=%v stderr=%q", code, stderr)
+	}
+	got, err := os.ReadFile(outputPath)
+	if err != nil || !bytes.Equal(got, newData) {
+		t.Fatalf("applied data = %q, %v; want %q", got, err, newData)
+	}
+
+	if code, stdout, stderr := run("read", oldPath); code != zucchini.StatusSuccess ||
+		!strings.Contains(stdout, "not a recognized executable") {
+		t.Fatalf("read: code=%v stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if code, _, stderr := run("detect", oldPath); code != zucchini.StatusSuccess {
+		t.Fatalf("detect: code=%v stderr=%q", code, stderr)
+	}
+	if code, stdout, stderr := run("match", oldPath, newPath); code != zucchini.StatusSuccess ||
+		!strings.Contains(stdout, "Nontrivial matched pairs") {
+		t.Fatalf("match: code=%v stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if code, _, stderr := run("suffix-array", oldPath); code != zucchini.StatusSuccess {
+		t.Fatalf("suffix-array: code=%v stderr=%q", code, stderr)
+	}
+	if code, stdout, stderr := run("gen", "--help"); code != zucchini.StatusSuccess ||
+		!strings.Contains(stdout, "--keep retains") {
+		t.Fatalf("command help: code=%v stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
+func TestRunCLIFileCommandErrors(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.bin")
+	for _, args := range [][]string{
+		{"verify", missing},
+		{"read", missing},
+		{"detect", missing},
+		{"crc32", missing},
+		{"suffix-array", missing},
+		{"match", missing, missing},
+		{"gen", missing, missing, filepath.Join(dir, "patch")},
+		{"apply", missing, missing, filepath.Join(dir, "output")},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := runCLI(args, &stdout, &stderr); code != zucchini.StatusFileReadError {
+			t.Errorf("runCLI(%q) = %v, stderr=%q; want StatusFileReadError", args, code, stderr.String())
+		}
+	}
+
+	badPatch := filepath.Join(dir, "bad.patch")
+	if err := os.WriteFile(badPatch, []byte("not a patch"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"verify", badPatch}, &stdout, &stderr); code != zucchini.StatusPatchReadError {
+		t.Fatalf("verify invalid patch = %v, stderr=%q", code, stderr.String())
+	}
+	if got := statusFromError(zucchini.NewError(zucchini.StatusDiskFull, "full"), zucchini.StatusFatal); got != zucchini.StatusDiskFull {
+		t.Fatalf("statusFromError(zucchini error) = %v", got)
+	}
+	if got := statusFromError(errors.New("plain"), zucchini.StatusIoError); got != zucchini.StatusIoError {
+		t.Fatalf("statusFromError(plain error) = %v", got)
 	}
 }

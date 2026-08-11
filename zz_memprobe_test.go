@@ -16,17 +16,38 @@ import (
 	"time"
 )
 
+const (
+	memprobeOldEnv = "ZUCCHINI_MEMPROBE_OLD"
+	memprobeNewEnv = "ZUCCHINI_MEMPROBE_NEW"
+)
+
+func memprobeInputs(t *testing.T) (oldPath, newPath string, oldImage, newImage []byte) {
+	t.Helper()
+	oldPath = os.Getenv(memprobeOldEnv)
+	newPath = os.Getenv(memprobeNewEnv)
+	if oldPath == "" || newPath == "" {
+		t.Skipf("set %s and %s to run memory probes", memprobeOldEnv, memprobeNewEnv)
+	}
+	var err error
+	oldImage, err = os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatalf("read old input: %v", err)
+	}
+	newImage, err = os.ReadFile(newPath)
+	if err != nil {
+		t.Fatalf("read new input: %v", err)
+	}
+	return oldPath, newPath, oldImage, newImage
+}
+
 // TestZZApplyMemProbe isolates patch application from generation. The patch is
 // created outside this test so GenerateBuffer's temporary heap cannot affect
 // the Apply measurement.
 func TestZZApplyMemProbe(t *testing.T) {
-	oldImage, err := os.ReadFile("v1.exe")
+	_, _, oldImage, expected := memprobeInputs(t)
+	patchBytes, err := GenerateBuffer(oldImage, expected)
 	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	patchBytes, err := os.ReadFile("apply_probe.patch")
-	if err != nil {
-		t.Skipf("apply_probe.patch not available: %v", err)
+		t.Fatalf("GenerateBuffer: %v", err)
 	}
 
 	runtime.GC()
@@ -42,12 +63,8 @@ func TestZZApplyMemProbe(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	expected, err := os.ReadFile("v2.exe")
-	if err != nil {
-		t.Fatalf("read v2.exe: %v", err)
-	}
 	if !bytes.Equal(newImage, expected) {
-		t.Fatal("applied image differs from v2.exe")
+		t.Fatal("applied image differs from the configured new input")
 	}
 
 	sum := sha256.Sum256(newImage)
@@ -61,9 +78,7 @@ func TestZZApplyMemProbe(t *testing.T) {
 }
 
 func TestZZGenerateFileMemProbe(t *testing.T) {
-	if os.Getenv("ZUCCHINI_FILE_MEMPROBE") == "" {
-		t.Skip("set ZUCCHINI_FILE_MEMPROBE=1 to run file-backed memory probes")
-	}
+	oldPath, newPath, _, _ := memprobeInputs(t)
 
 	runtime.GC()
 	var base runtime.MemStats
@@ -72,7 +87,7 @@ func TestZZGenerateFileMemProbe(t *testing.T) {
 	p := startPeakSampler()
 	start := time.Now()
 	patchPath := filepath.Join(t.TempDir(), "apply_probe.patch")
-	err := GenerateFile("v1.exe", "v2.exe", patchPath)
+	err := GenerateFile(oldPath, newPath, patchPath)
 	elapsed := time.Since(start)
 	heap, sys, total := p.finish()
 	if err != nil {
@@ -92,14 +107,17 @@ func TestZZGenerateFileMemProbe(t *testing.T) {
 }
 
 func TestZZApplyFileMemProbe(t *testing.T) {
-	if os.Getenv("ZUCCHINI_FILE_MEMPROBE") == "" {
-		t.Skip("set ZUCCHINI_FILE_MEMPROBE=1 to run file-backed memory probes")
+	oldPath, _, oldImage, expected := memprobeInputs(t)
+	workDir := t.TempDir()
+	patchPath := filepath.Join(workDir, "apply-probe.patch")
+	patchBytes, err := GenerateBuffer(oldImage, expected)
+	if err != nil {
+		t.Fatalf("GenerateBuffer: %v", err)
 	}
-	if _, err := os.Stat("apply_probe.patch"); err != nil {
-		t.Skipf("apply_probe.patch not available: %v", err)
+	if err := os.WriteFile(patchPath, patchBytes, 0o644); err != nil {
+		t.Fatalf("write patch: %v", err)
 	}
-	const outputPath = "apply_probe_output.exe"
-	defer os.Remove(outputPath)
+	outputPath := filepath.Join(workDir, "apply-probe-output.bin")
 
 	runtime.GC()
 	var base runtime.MemStats
@@ -107,7 +125,7 @@ func TestZZApplyFileMemProbe(t *testing.T) {
 
 	p := startPeakSampler()
 	start := time.Now()
-	err := ApplyFile("v1.exe", "apply_probe.patch", outputPath)
+	err = ApplyFile(oldPath, patchPath, outputPath)
 	elapsed := time.Since(start)
 	heap, sys, total := p.finish()
 	if err != nil {
@@ -117,12 +135,8 @@ func TestZZApplyFileMemProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := os.ReadFile("v2.exe")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !bytes.Equal(newImage, expected) {
-		t.Fatal("ApplyFile output differs from v2.exe")
+		t.Fatal("ApplyFile output differs from the configured new input")
 	}
 	sum := sha256.Sum256(newImage)
 	t.Logf("OUTPUT      %.1f MiB sha256=%s", mib(uint64(len(newImage))), hex.EncodeToString(sum[:]))
@@ -133,17 +147,10 @@ func TestZZApplyFileMemProbe(t *testing.T) {
 	t.Logf("ELAPSED     %s", elapsed)
 }
 
-// TestZZMemProbe reports peak memory for a full v1.exe -> v2.exe generation and
+// TestZZMemProbe reports peak memory for a configured generation pair and
 // prints the patch hash, which must stay constant across optimizations.
 func TestZZMemProbe(t *testing.T) {
-	oldImage, err := os.ReadFile("v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	newImage, err := os.ReadFile("v2.exe")
-	if err != nil {
-		t.Skipf("v2.exe not available: %v", err)
-	}
+	_, _, oldImage, newImage := memprobeInputs(t)
 
 	runtime.GC()
 	var base runtime.MemStats

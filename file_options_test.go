@@ -97,3 +97,61 @@ func TestApplyFilePartialOutputLifecycle(t *testing.T) {
 		t.Fatalf("partial output size = %d, want %d", info.Size(), len(newImage))
 	}
 }
+
+func TestGenerateFileImposedRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	oldImage := []byte("0123456789ABCDEF0123456789ABCDEF")
+	newImage := []byte("0123456789XYZDEF0123456789XYZDEF")
+	oldPath := filepath.Join(dir, "old.bin")
+	newPath := filepath.Join(dir, "new.bin")
+	patchPath := filepath.Join(dir, "update.patch")
+	outputPath := filepath.Join(dir, "output.bin")
+	if err := os.WriteFile(oldPath, oldImage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, newImage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateFileWithOptions(oldPath, newPath, patchPath, GenerateFileOptions{
+		ImposedMatches: "0+16=0+16,16+16=16+16",
+	}); err != nil {
+		t.Fatalf("GenerateFileWithOptions: %v", err)
+	}
+	if err := ApplyFile(oldPath, patchPath, outputPath); err != nil {
+		t.Fatalf("ApplyFile: %v", err)
+	}
+	got, err := os.ReadFile(outputPath)
+	if err != nil || !bytes.Equal(got, newImage) {
+		t.Fatalf("applied data = %q, %v; want %q", got, err, newImage)
+	}
+}
+
+func TestFileAPIErrorStatuses(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "old.bin")
+	newPath := filepath.Join(dir, "new.bin")
+	missing := filepath.Join(dir, "missing.bin")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assertErrorCode(t, GenerateFileWithOptions(oldPath, newPath, filepath.Join(dir, "unused.patch"), GenerateFileOptions{
+		Raw: true, ImposedMatches: "0+1=0+1",
+	}), StatusInvalidParam)
+	assertErrorCode(t, GenerateFile(missing, newPath, filepath.Join(dir, "missing-old.patch")), StatusFileReadError)
+	assertErrorCode(t, GenerateFile(oldPath, missing, filepath.Join(dir, "missing-new.patch")), StatusFileReadError)
+	assertErrorCode(t, GenerateFile(oldPath, newPath, filepath.Join(dir, "missing-dir", "patch")), StatusFileWriteError)
+
+	assertErrorCode(t, ApplyFile(missing, missing, filepath.Join(dir, "output")), StatusFileReadError)
+	assertErrorCode(t, ApplyFile(oldPath, missing, filepath.Join(dir, "output")), StatusFileReadError)
+	badPatch := filepath.Join(dir, "bad.patch")
+	if err := os.WriteFile(badPatch, []byte("invalid patch"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertErrorCode(t, ApplyFile(oldPath, badPatch, filepath.Join(dir, "output")), StatusPatchReadError)
+	assertErrorCode(t, ApplyFile(oldPath, badPatch, oldPath), StatusInvalidParam)
+	assertErrorCode(t, ApplyFile(oldPath, badPatch, badPatch), StatusInvalidParam)
+}

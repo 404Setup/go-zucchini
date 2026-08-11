@@ -2,7 +2,6 @@ package disasm
 
 import (
 	"encoding/binary"
-	"os"
 	"testing"
 
 	"github.com/404Setup/go-zucchini/internal/types"
@@ -46,13 +45,10 @@ func TestQuickDetectWin32AndElf(t *testing.T) {
 }
 
 func TestWin32WriterGroupsDoNotDiscoverReferences(t *testing.T) {
-	image, err := os.ReadFile("../../v2.exe")
-	if err != nil {
-		t.Skipf("v2.exe not available: %v", err)
-	}
+	image := makeMinimalPE64()
 	d, ok := NewDisassemblerWin32X64(image)
 	if !ok {
-		t.Fatal("failed to parse v2.exe")
+		t.Fatal("failed to parse synthetic PE64 image")
 	}
 	groups := MakeReferenceGroupsForWriter(d)
 	if len(groups) != 3 {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/404Setup/go-zucchini/internal/buffer"
@@ -227,58 +226,20 @@ func TestBigPatchMemory(t *testing.T) {
 	}
 }
 
-func TestComparePatches(t *testing.T) {
-	cppData, err := os.ReadFile("cpp.patch")
-	if err != nil {
-		t.Skip("cpp.patch not found")
+func TestDisassemblerReferenceDiscovery(t *testing.T) {
+	image := makeSyntheticPE64(0)
+	d, ok := disasm.NewDisassemblerWin32X64(image)
+	if !ok {
+		t.Fatal("synthetic PE64 image was rejected")
 	}
-	goData, err := os.ReadFile("go.patch")
-	if err != nil {
-		t.Skip("go.patch not found")
+	groups := d.MakeReferenceGroups()
+	if len(groups) != 3 {
+		t.Fatalf("reference group count = %d, want 3", len(groups))
 	}
-
-	cppReader, _ := patch.CreateEnsemblePatchReader(cppData)
-	goReader, _ := patch.CreateEnsemblePatchReader(goData)
-
-	t.Logf("CPP patch total size: %d", len(cppData))
-	t.Logf("GO  patch total size: %d", len(goData))
-
-	if cppReader != nil && goReader != nil {
-		for i, elem := range cppReader.Elements() {
-			t.Logf("CPP Elem [%d]: Match=%+v Equiv=%d Extra=%d RawDelta=%d RefDelta=%d ExtraTargets=%+v",
-				i, elem.ElementMatch(), elem.BufEquivLen(), elem.BufExtraLen(), elem.BufRawDeltaLen(), elem.BufRefDeltaLen(), elem.ExtraTargetLens())
-		}
-		for i, elem := range goReader.Elements() {
-			t.Logf("GO  Elem [%d]: Match=%+v Equiv=%d Extra=%d RawDelta=%d RefDelta=%d ExtraTargets=%+v",
-				i, elem.ElementMatch(), elem.BufEquivLen(), elem.BufExtraLen(), elem.BufRawDeltaLen(), elem.BufRefDeltaLen(), elem.ExtraTargetLens())
-		}
+	if d.Abs32Len() == 0 {
+		t.Fatal("base relocation did not produce absolute-address references")
 	}
-}
-
-// TestDisassemblerRefs logs abs32/rel32 reference counts for v1.exe and v2.exe.
-// Compare against C++ output to detect disassembler divergence.
-func TestDisassemblerRefs(t *testing.T) {
-	logDisasm := func(name, path string) {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Skipf("%s not found: %v", name, err)
-		}
-
-		d, ok := disasm.NewDisassemblerWin32X64(data)
-		if !ok {
-			dx, ok2 := disasm.NewDisassemblerWin32X86(data)
-			if !ok2 {
-				t.Fatalf("Failed to create disassembler for %s", name)
-			}
-			dx.MakeReferenceGroups()
-			t.Logf("%s (X86): image_size=%d abs32=%d rel32=%d",
-				name, len(dx.Image()), dx.Abs32Len(), dx.Rel32Len())
-			return
-		}
-		d.MakeReferenceGroups()
-		t.Logf("%s (X64): image_size=%d abs32=%d rel32=%d",
-			name, len(d.Image()), d.Abs32Len(), d.Rel32Len())
+	if d.Rel32Len() < 2 {
+		t.Fatalf("relative reference count = %d, want at least 2", d.Rel32Len())
 	}
-	logDisasm("v1.exe", "v1.exe")
-	logDisasm("v2.exe", "v2.exe")
 }

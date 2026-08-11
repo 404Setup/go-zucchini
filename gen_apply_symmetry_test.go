@@ -1,7 +1,6 @@
 package zucchini
 
 import (
-	"os"
 	"testing"
 
 	"github.com/404Setup/go-zucchini/internal/disasm"
@@ -10,20 +9,11 @@ import (
 	"github.com/404Setup/go-zucchini/internal/types"
 )
 
-// TestGenVsApplyTargetPools reconstructs the target pool the way zucchini_gen
-// does and the way zucchini_apply does, from the same old image and the same
-// equivalence set, then compares them. Generation is known-correct (its patch
-// is byte-identical to the C++ reference), so any divergence here is an apply
-// bug.
+// TestGenVsApplyTargetPools reconstructs the target pool independently through
+// the generation and application algorithms and verifies their shared invariant.
 func TestGenVsApplyTargetPools(t *testing.T) {
-	oldImage, err := os.ReadFile("v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	newImage, err := os.ReadFile("v2.exe")
-	if err != nil {
-		t.Skipf("v2.exe not available: %v", err)
-	}
+	oldImage := makeSyntheticPE64(0)
+	newImage := makeSyntheticPE64(0x5A)
 
 	exeType := types.ExecutableTypeWin32X64
 
@@ -138,14 +128,8 @@ func TestGenVsApplyTargetPools(t *testing.T) {
 // the two sides disagree on which references are covered by equivalences, which
 // desynchronizes the whole stream.
 func TestRefDeltaCountGenVsApply(t *testing.T) {
-	oldImage, err := os.ReadFile("v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	newImage, err := os.ReadFile("v2.exe")
-	if err != nil {
-		t.Skipf("v2.exe not available: %v", err)
-	}
+	oldImage := makeSyntheticPE64(0)
+	newImage := makeSyntheticPE64(0x5A)
 
 	exeType := types.ExecutableTypeWin32X64
 	oldDisasm := matcher.MakeDisassemblerOfType(oldImage, exeType)

@@ -83,6 +83,43 @@ func TestTargetPoolWithTargetsDoesNotMutateInput(t *testing.T) {
 	}
 }
 
+func TestTargetPoolMutationsAndProjection(t *testing.T) {
+	pool := NewTargetPool()
+	pool.AddType(3)
+	pool.InsertTargets([]types.Offset{30, 10, 20, 10})
+	pool.InsertReferences([]types.Reference{{Target: 25}, {Target: 30}})
+	if !slices.Equal(pool.Types(), []types.TypeTag{3}) {
+		t.Fatalf("types = %v, want [3]", pool.Types())
+	}
+	if !slices.Equal(pool.Targets(), []types.Offset{10, 20, 25, 30}) {
+		t.Fatalf("targets = %v, want [10 20 25 30]", pool.Targets())
+	}
+	if pool.OffsetForKey(2) != 25 || !pool.KeyIsValid(3) || pool.KeyIsValid(4) {
+		t.Fatal("target key lookup or validation is incorrect")
+	}
+	if pool.KeyForOffset(21) != uint32(pool.Size()) {
+		t.Fatal("missing target did not return the sentinel key")
+	}
+	if pool.KeyForNearestOffset(0) != 0 || pool.KeyForNearestOffset(99) != 3 || pool.KeyForNearestOffset(15) != 0 {
+		t.Fatal("nearest target boundary or tie handling is incorrect")
+	}
+	if NewTargetPool().KeyForNearestOffset(10) != 0 {
+		t.Fatal("empty pool nearest key must be zero")
+	}
+
+	mapper := NewOffsetMapper([]types.Equivalence{
+		{SrcOffset: 10, DstOffset: 100, Length: 6},
+		{SrcOffset: 25, DstOffset: 200, Length: 10},
+	}, 40, 220)
+	pool.FilterAndProject(*mapper)
+	if !slices.Equal(pool.Targets(), []types.Offset{100, 200, 205}) {
+		t.Fatalf("projected targets = %v, want [100 200 205]", pool.Targets())
+	}
+	if got := mapper.ForwardProjectAll([]types.Offset{9, 10, 15, 16, 25, 34, 35}); !slices.Equal(got, []types.Offset{100, 105, 200, 209}) {
+		t.Fatalf("ForwardProjectAll() = %v", got)
+	}
+}
+
 func TestFindEmbeddedElementsLimit(t *testing.T) {
 	detector := func(image []byte) (types.Element, bool) {
 		if len(image) == 0 {

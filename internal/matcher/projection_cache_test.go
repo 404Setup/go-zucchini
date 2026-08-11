@@ -1,29 +1,17 @@
 package matcher
 
 import (
-	"os"
 	"testing"
 
+	"github.com/404Setup/go-zucchini/internal/disasm"
 	"github.com/404Setup/go-zucchini/internal/types"
 )
 
 // TestProjectionAtMatchesProjection verifies the O(1) cached oracle agrees with
-// the reference implementation at every offset of a real binary, both before any
-// labels are assigned (iteration 1 conditions) and after (iteration 2).
+// the reference implementation at every offset, both before any labels are
+// assigned (iteration 1 conditions) and after (iteration 2).
 func TestProjectionAtMatchesProjection(t *testing.T) {
-	image, err := os.ReadFile("../../v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-
-	d := MakeDisassemblerOfType(image, types.ExecutableTypeWin32X64)
-	if d == nil {
-		t.Fatal("failed to create disassembler")
-	}
-	idx := NewImageIndex(image)
-	if !idx.Initialize(d) {
-		t.Fatal("Initialize failed")
-	}
+	idx := newProjectionTestIndex(t)
 
 	check := func(name string, ev *EncodedView) {
 		ev.BuildProjectionCache()
@@ -51,15 +39,7 @@ func TestProjectionAtMatchesProjection(t *testing.T) {
 
 // TestRefRankConsistency checks the rank structure against a direct count.
 func TestRefRankConsistency(t *testing.T) {
-	image, err := os.ReadFile("../../v1.exe")
-	if err != nil {
-		t.Skipf("v1.exe not available: %v", err)
-	}
-	d := MakeDisassemblerOfType(image, types.ExecutableTypeWin32X64)
-	idx := NewImageIndex(image)
-	if !idx.Initialize(d) {
-		t.Fatal("Initialize failed")
-	}
+	idx := newProjectionTestIndex(t)
 
 	total := 0
 	for _, refSet := range idx.ReferenceSets() {
@@ -81,6 +61,74 @@ func TestRefRankConsistency(t *testing.T) {
 	if running != total {
 		t.Fatalf("counted %d reference starts, expected %d", running, total)
 	}
+}
+
+type projectionTestDisassembler struct {
+	image []byte
+	refs  []types.Reference
+}
+
+func (d *projectionTestDisassembler) GetExeType() types.ExecutableType {
+	return types.ExecutableTypeNoOp
+}
+func (d *projectionTestDisassembler) GetExeTypeString() string { return "projection-test" }
+func (d *projectionTestDisassembler) Image() []byte            { return d.image }
+func (d *projectionTestDisassembler) Size() int                { return len(d.image) }
+func (d *projectionTestDisassembler) NumEquivalenceIterations() int {
+	return 2
+}
+func (d *projectionTestDisassembler) Parse() bool { return true }
+func (d *projectionTestDisassembler) MakeReferenceGroups() []disasm.ReferenceGroup {
+	return []disasm.ReferenceGroup{{
+		Traits:             types.ReferenceTypeTraits{Width: 4, TypeTag: 1, PoolTag: 1},
+		ReferenceCountHint: len(d.refs),
+		ReaderFactory: func(lower, upper types.Offset) types.ReferenceReader {
+			refs := make([]types.Reference, 0, len(d.refs))
+			for _, ref := range d.refs {
+				if ref.Location >= lower && ref.Location < upper {
+					refs = append(refs, ref)
+				}
+			}
+			return &projectionTestReader{refs: refs}
+		},
+		WriterFactory: func([]byte) types.ReferenceWriter {
+			return disasm.NewEmptyReferenceWriter()
+		},
+	}}
+}
+
+type projectionTestReader struct {
+	refs []types.Reference
+	pos  int
+}
+
+func (r *projectionTestReader) GetNext() (types.Reference, bool) {
+	if r.pos == len(r.refs) {
+		return types.Reference{}, false
+	}
+	ref := r.refs[r.pos]
+	r.pos++
+	return ref, true
+}
+
+func newProjectionTestIndex(t *testing.T) *ImageIndex {
+	t.Helper()
+	image := make([]byte, 192)
+	for i := range image {
+		image[i] = byte(i*37 + i/11)
+	}
+	d := &projectionTestDisassembler{image: image, refs: []types.Reference{
+		{Location: 3, Target: 40},
+		{Location: 31, Target: 80},
+		{Location: 64, Target: 120},
+		{Location: 95, Target: 40},
+		{Location: 127, Target: 160},
+	}}
+	idx := NewImageIndex(image)
+	if !idx.Initialize(d) {
+		t.Fatal("Initialize failed for in-memory reference fixture")
+	}
+	return idx
 }
 
 func TestReferenceTypeByRank(t *testing.T) {

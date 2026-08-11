@@ -44,6 +44,16 @@ The script disables inherited experiments and linker stripping, targets the
 baseline amd64 instruction set, preserves Go/VCS build metadata, and writes a
 SHA-256 checksum next to the executable.
 
+For a high-performance, position-independent Windows build:
+
+```powershell
+.\scripts\build-windows.ps1 -GoAmd64 v3 -GoExperiment arenas -Hardened
+```
+
+This retains the selected CPU and Go runtime features, normal build ID, debug
+information, and Go/VCS metadata. Hardened mode removes host paths and emits a
+position-independent executable.
+
 Tagged and manually dispatched GitHub builds also attach signed build
 provenance to the Windows executable. Verify a downloaded release artifact:
 
@@ -171,14 +181,19 @@ go test ./...
 go vet ./...
 ```
 
-On Windows, use the pinned test entry point so machine-level Go experiments,
-instruction targets, and cgo settings cannot silently change the test
-executables inspected by security software:
+On Windows, use the hardened test entry point. It removes host paths and uses
+position-independent transient test executables while preserving the active CPU
+and Go feature configuration and full Go build metadata:
 
 ```powershell
 .\scripts\test-windows.ps1
+.\scripts\test-windows.ps1 -GoAmd64 v1 -GoExperiment none
+.\scripts\test-windows.ps1 -GoAmd64 v3 -GoExperiment arenas
 go vet ./...
 ```
+
+The first command follows the active Go configuration. The second pins the
+portable amd64 baseline, and the third exercises the high-performance profile.
 
 The large memory and assembly corpus probes are intentionally absent from the
 default test executable. Enable them only for their dedicated measurement

@@ -10,12 +10,9 @@ import (
 // profiles. Override the inputs when profiling production data.
 func BenchmarkGenerateFile(b *testing.B) {
 	oldPath := os.Getenv("ZUCCHINI_BENCH_OLD")
-	if oldPath == "" {
-		oldPath = "v1.exe"
-	}
 	newPath := os.Getenv("ZUCCHINI_BENCH_NEW")
-	if newPath == "" {
-		newPath = "v2.exe"
+	if oldPath == "" || newPath == "" {
+		b.Skip("set ZUCCHINI_BENCH_OLD and ZUCCHINI_BENCH_NEW to benchmark file inputs")
 	}
 	if _, err := os.Stat(oldPath); err != nil {
 		b.Skipf("old benchmark input unavailable: %v", err)

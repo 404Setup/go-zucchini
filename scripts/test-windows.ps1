@@ -1,7 +1,9 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Tags = ''
+    [string]$Tags = '',
+    [string]$GoAmd64 = '',
+    [string]$GoExperiment = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,15 +15,21 @@ foreach ($name in 'CGO_ENABLED', 'GOAMD64', 'GOEXPERIMENT', 'GOFLAGS', 'GOCACHE'
 
 try {
     $env:CGO_ENABLED = '0'
-    $env:GOAMD64 = 'v1'
-    $env:GOEXPERIMENT = 'none'
+    if ($GoAmd64) {
+        $env:GOAMD64 = $GoAmd64
+    }
+    if ($GoExperiment) {
+        $env:GOEXPERIMENT = $GoExperiment
+    }
     $env:GOCACHE = Join-Path $repoRoot '.gocache'
     $env:GOMODCACHE = Join-Path $repoRoot '.gomodcache'
     $env:GOTMPDIR = Join-Path $repoRoot '.gotmp\test'
     New-Item -ItemType Directory -Force -Path $env:GOCACHE, $env:GOMODCACHE, $env:GOTMPDIR | Out-Null
     Remove-Item Env:GOFLAGS -ErrorAction SilentlyContinue
 
-    $goArgs = @('test', '-p=1', '-count=1')
+    # Remove host paths and use a position-independent executable without
+    # changing the selected CPU/runtime features or stripping Go metadata.
+    $goArgs = @('test', '-p=1', '-count=1', '-trimpath', '-buildmode=pie')
     if ($Tags) {
         $goArgs += @('-tags', $Tags)
     }
