@@ -16,6 +16,7 @@ compile_commands.json
 /.gocache/
 /.gomodcache/
 /.gotmp/
+/.tmp-*
 /dist/
 
 # ASM_PLAN.md Phase 0 benchmark corpus and measurement records
